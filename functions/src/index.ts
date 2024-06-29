@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as admin from "firebase-admin";
-import { onRequest } from "firebase-functions/v2/https";
+import * as functions from "firebase-functions";
 
 // Start writing functions
 // https://firebase.google.com/docs/functions/typescript
@@ -34,36 +34,40 @@ const orderDataScheme = z.object({
   paymentStatus: z.nativeEnum(PaymentStatus),
   refunded: z.boolean().optional(),
 });
-export const updatePaymentStatus = onRequest(async (request, response) => {
-  try {
-    // receive post request from webhook
-    const body = request.body;
-    const paymentStatus = body.status;
-    const isRefunded = body.refunded;
-    // based on the metadata that you provided in the frontend
-    const orderId = body.metadata?.orderId;
-    const orderDoc = admin.firestore().collection("Orders").doc(orderId);
-    const order = await orderDoc.get();
+export const updatePaymentStatus = functions
+  .runWith({
+    enforceAppCheck: false, // Reject requests with missing or invalid App Check tokens.
+  })
+  .https.onRequest(async (request, response) => {
+    try {
+      // receive post request from webhook
+      const body = request.body;
+      const paymentStatus = body.status;
+      const isRefunded = body.refunded;
+      // based on the metadata that you provided in the frontend
+      const orderId = body.metadata?.orderId;
+      const orderDoc = admin.firestore().collection("Orders").doc(orderId);
+      const order = await orderDoc.get();
 
-    const orderData = orderDataScheme.parse(order.data());
-    orderData.refunded = isRefunded ?? false;
-    orderData.paymentStatus = paymentStatus;
-    orderData.orderStatus =
-      orderData.paymentStatus === PaymentStatus.completed
-        ? OrderStatus.delivered
-        : OrderStatus.pending;
-    await orderDoc.update(orderData);
-    response.json(orderData).send();
-    return;
-  } catch (e) {
-    console.error(e);
-    // set status code to 500 to trigger webhook retries on the cashOver side
-    response
-      .status(500)
-      .json({
-        error: "Unable to update payment status",
-      })
-      .send();
-    return;
-  }
-});
+      const orderData = orderDataScheme.parse(order.data());
+      orderData.refunded = isRefunded ?? false;
+      orderData.paymentStatus = paymentStatus;
+      orderData.orderStatus =
+        orderData.paymentStatus === PaymentStatus.completed
+          ? OrderStatus.delivered
+          : OrderStatus.pending;
+      await orderDoc.update(orderData);
+      response.json(orderData).send();
+      return;
+    } catch (e) {
+      console.error(e);
+      // set status code to 500 to trigger webhook retries on the cashOver side
+      response
+        .status(500)
+        .json({
+          error: "Unable to update payment status",
+        })
+        .send();
+      return;
+    }
+  });
