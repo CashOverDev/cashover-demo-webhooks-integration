@@ -1,12 +1,12 @@
-import { z } from "zod";
+import {z} from "zod";
 import * as admin from "firebase-admin";
-import { onRequest } from "firebase-functions/v2/https";
+import {onRequest} from "firebase-functions/v2/https";
 
 // Start writing functions
 // https://firebase.google.com/docs/functions/typescript
 
 admin.initializeApp();
-admin.firestore().settings({ ignoreUndefinedProperties: true });
+admin.firestore().settings({ignoreUndefinedProperties: true});
 
 enum PaymentStatus {
   pending = "pending",
@@ -41,16 +41,17 @@ export const updatePaymentStatus = onRequest(async (request, response) => {
     const paymentStatus = body.status;
     const isRefunded = body.refunded;
     const orderId = body.metadata?.orderId; // based on the metadata that you provided in the frontend
-    const orderDoc = admin.firestore().collection("Orders").doc(orderId);
+    const orderDoc = admin.firestore()
+    .collection("Orders").doc(orderId);
     const order = await orderDoc.get();
 
     const orderData = orderDataScheme.parse(order.data());
     orderData.refunded = isRefunded ?? false;
     orderData.paymentStatus = paymentStatus;
     orderData.orderStatus =
-      orderData.paymentStatus === PaymentStatus.completed
-        ? OrderStatus.delivered
-        : OrderStatus.pending;
+      orderData.paymentStatus === PaymentStatus.completed ?
+        OrderStatus.delivered :
+        OrderStatus.pending;
     await orderDoc.update(orderData);
     response.json(orderData).send();
     return;
