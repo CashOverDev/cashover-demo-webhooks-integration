@@ -40,9 +40,9 @@ export const updatePaymentStatus = onRequest(async (request, response) => {
     const body = request.body;
     const paymentStatus = body.status;
     const isRefunded = body.refunded;
-    const orderId = body.metadata?.orderId; // based on the metadata that you provided in the frontend
-    const orderDoc = admin.firestore()
-    .collection("Orders").doc(orderId);
+    // based on the metadata that you provided in the frontend
+    const orderId = body.metadata?.orderId;
+    const orderDoc = admin.firestore().collection("Orders").doc(orderId);
     const order = await orderDoc.get();
 
     const orderData = orderDataScheme.parse(order.data());
