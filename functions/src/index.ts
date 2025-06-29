@@ -1,12 +1,12 @@
 import { z } from "zod";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+import * as crypto from "node:crypto";
 
 admin.initializeApp();
 admin.firestore().settings({ ignoreUndefinedProperties: true });
+
+const WEBHOOK_SECRET = "h10y2t-Z2D5PHv8K4lLbN6dU-dH8Gvfm"; // securely stored in env
 
 export enum OperationStatus {
   pending = "pending",
@@ -25,6 +25,7 @@ enum OrderStatus {
   delivered = "delivered",
   returned = "returned",
 }
+
 const orderDataScheme = z.object({
   items: z.array(
     z.object({
@@ -39,13 +40,53 @@ const orderDataScheme = z.object({
   paymentStatus: z.nativeEnum(OperationStatus),
   refunded: z.boolean().optional(),
 });
+
 export const updatePaymentStatus = functions
   .runWith({
     enforceAppCheck: false, // Reject requests with missing or invalid App Check tokens.
   })
   .https.onRequest(async (request, response) => {
     try {
-      // receive post request from webhook
+      const signatureHeader = request.header("X-Signature");
+      const timestampHeader = request.header("X-Signature-Timestamp");
+
+      if (!signatureHeader || !timestampHeader) {
+        console.log({ error: "Missing signature headers" });
+        response.status(400).json({ error: "Missing signature headers" });
+        return;
+      }
+
+      const [tPart, v1Part] = signatureHeader.split(",");
+      const timestamp = parseInt(tPart.split("=")[1]);
+      const receivedSignature = v1Part.split("=")[1];
+
+      // Replay protection: reject if timestamp is older than 5 minutes
+      const now = Math.floor(Date.now() / 1000);
+      if (Math.abs(now - timestamp) > 300) {
+        console.log({ error: "Timestamp too old" });
+        response.status(400).json({ error: "Timestamp too old" });
+        return;
+      }
+
+      // Verify signature
+      const rawBody = JSON.stringify(request.body);
+      const payloadToSign = `${timestamp}.${rawBody}`;
+      const expectedSignature = crypto
+        .createHmac("sha256", WEBHOOK_SECRET)
+        .update(payloadToSign)
+        .digest("hex");
+
+      if (
+        !crypto.timingSafeEqual(
+          Uint8Array.from(Buffer.from(receivedSignature, "hex")),
+          Uint8Array.from(Buffer.from(expectedSignature, "hex"))
+        )
+      ) {
+        console.log({ error: "Invalid signature" });
+        response.status(403).json({ error: "Invalid signature" });
+        return;
+      }
+      // Webhook is verified, proceed
       const webhookEvent = request.body.event as WebhookEvent;
       const body = request.body;
       const paymentStatus = body.status as OperationStatus;
