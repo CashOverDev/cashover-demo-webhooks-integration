@@ -7,7 +7,7 @@
     "start-development": "firebase emulators:start --only functions,firestore --import exported-dev-data --export-on-exit=exported-dev-data"
   },
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "main": "lib/index.js",
   "dependencies": {
