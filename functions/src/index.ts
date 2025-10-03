@@ -2,11 +2,11 @@ import { z } from "zod";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as crypto from "node:crypto";
+import { defineString } from "firebase-functions/params";
 
 admin.initializeApp();
 admin.firestore().settings({ ignoreUndefinedProperties: true });
 
-const WEBHOOK_SECRET = "h10y2t-Z2D5PHv8K4lLbN6dU-dH8Gvfm"; // securely stored in env
 
 export enum OperationStatus {
   pending = "pending",
@@ -15,8 +15,8 @@ export enum OperationStatus {
   canceled = "canceled",
 }
 export enum WebhookEvent {
-  TransactionRefunded = "transaction_refunded",
-  TransactionSuccessful = "transaction_successful",
+  TransactionRefunded = "transactionRefunded",
+  TransactionSuccessful = "transactionSuccessful",
 }
 enum OrderStatus {
   pending = "pending",
@@ -47,11 +47,11 @@ export const updatePaymentStatus = functions
   })
   .https.onRequest(async (request, response) => {
     try {
+      logRequest({ request })
       const signatureHeader = request.header("X-Signature");
       const timestampHeader = request.header("X-Signature-Timestamp");
-
       if (!signatureHeader || !timestampHeader) {
-        console.log({ error: "Missing signature headers" });
+        functions.logger.error({ error: "Missing signature headers" });
         response.status(400).json({ error: "Missing signature headers" });
         return;
       }
@@ -63,12 +63,13 @@ export const updatePaymentStatus = functions
       // Replay protection: reject if timestamp is older than 5 minutes
       const now = Math.floor(Date.now() / 1000);
       if (Math.abs(now - timestamp) > 300) {
-        console.log({ error: "Timestamp too old" });
+        functions.logger.error({ error: "Timestamp too old" });
         response.status(400).json({ error: "Timestamp too old" });
         return;
       }
 
       // Verify signature
+      const WEBHOOK_SECRET = defineString("WEBHOOK_SECRET").value() ?? ''; // securely stored in env
       const rawBody = JSON.stringify(request.body);
       const payloadToSign = `${timestamp}.${rawBody}`;
       const expectedSignature = crypto
@@ -82,7 +83,7 @@ export const updatePaymentStatus = functions
           Uint8Array.from(Buffer.from(expectedSignature, "hex"))
         )
       ) {
-        console.log({ error: "Invalid signature" });
+        functions.logger.error({ error: "Invalid signature" });
         response.status(403).json({ error: "Invalid signature" });
         return;
       }
@@ -121,4 +122,30 @@ export const updatePaymentStatus = functions
         .send();
       return;
     }
+
   });
+
+
+function logRequest({
+  request,
+}: {
+  request: functions.https.Request;
+}) {
+  // Get the full request URL
+  // TODO: Fix so that the full url is truly fetched
+  // => There is no way to get the actual url of the request in cloud
+  // functions without using express but there is another parameter in the log
+  // named resource.labels.function_name which will give the actual name of the
+  // cloud function being accessed and routes follow the naming of cloud functions.
+  let headers = request.headers;
+
+
+
+  const data = {
+    method: request.method,
+    body: request.body,
+    headers,
+    queryParams: request.query,
+  };
+  functions.logger.debug("Registering request and response", data);
+}
